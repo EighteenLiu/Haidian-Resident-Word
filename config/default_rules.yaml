@@ -1,0 +1,36 @@
+filters:
+  point_level_1: "北部地区"
+  deduct_case: "是"
+  case_status: "结案"
+  solved_required: "是"
+  require_report_time_year: false
+  filter_report_time_range: false
+  require_deadline_in_report_month: true
+  require_indicator_mapped: true
+  require_village_in_dict: true
+  excluded_case_ids:
+    # The reference June submission excludes this ledger-matched road case.
+    # Remove it after the business owner confirms it should be counted.
+    - "2026062300627"
+inspection:
+  rounds: 2
+  default_start_day_previous_month: 18
+road_filter:
+  enabled: true
+  unmatched_policy: "warn_and_checklist"
+  statistics_policy: "matched_or_non_assessment_empty"
+statistics:
+  category_order:
+    - "农村生活垃圾治理"
+    - "村容村貌整治"
+    - "农村生活污水"
+    - "农村厕所革命"
+  problem_type_sort: "count_desc"
+word_postprocess:
+  merge_rules:
+    - table_name: "village_rows"
+      table_index: 3
+      column_index: 0
+      start_row: 1
+      key_columns: [0]
+      merge_empty: false

@@ -1,0 +1,6 @@
+customtkinter>=5.2
+docxtpl>=0.16
+openpyxl>=3.1
+python-docx>=1.1
+PyYAML>=6.0
+pytest>=8.0

@@ -1,0 +1,28 @@
+main_data:
+  point_level_1:
+    - "检查点位（1级）"
+    - "检查点位\n（1级）"
+  point_level_2:
+    - "检查点位（2级）"
+    - "检查点位\n（2级）"
+  point_level_3:
+    - "检查点位（3级）"
+    - "检查点位\n（3级）"
+  indicator_level_1:
+    - "检查指标（1级）"
+    - "检查指标\n（1级）"
+  indicator_level_2:
+    - "检查指标（2级）"
+    - "检查指标\n（2级）"
+  indicator_level_3:
+    - "检查指标（3级）"
+    - "检查指标\n（3级）"
+road:
+  street:
+    - "所属街道"
+  village:
+    - "小区（村）名称"
+  road:
+    - "道路"
+  alias:
+    - "备注-别名"
