@@ -205,6 +205,19 @@ def _write_detail_sheet(wb, records: list[CaseRecord]) -> None:
             _copy_row_style(ws, 2, row_idx, len(DETAIL_HEADERS))
         for col, header in enumerate(DETAIL_HEADERS, 1):
             ws.cell(row_idx, col).value = _record_value(record, header)
+    _fix_detail_datetime_columns(ws)
+
+
+def _fix_detail_datetime_columns(ws) -> None:
+    date_headers = {"上报时间", "截止时间", "结案时间", "整改时间(二级部门)"}
+    for col in range(1, ws.max_column + 1):
+        header = normalize_header(ws.cell(1, col).value)
+        if header not in {normalize_header(item) for item in date_headers}:
+            continue
+        ws.column_dimensions[ws.cell(1, col).column_letter].width = max(ws.column_dimensions[ws.cell(1, col).column_letter].width or 0, 21)
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row, col)
+            cell.number_format = "yyyy-mm-dd hh:mm:ss"
 
 
 def _write_unmapped_sheet(wb, stats: ReportStats) -> None:

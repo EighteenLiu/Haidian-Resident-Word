@@ -25,9 +25,43 @@ statistics:
     - "村容村貌整治"
     - "农村生活污水"
     - "农村厕所革命"
-  problem_type_sort: "count_desc"
+  problem_type_sort: "category_then_count_desc"
 word_postprocess:
+  paragraph_replacements:
+    - old: "农村人居环境检查发现各镇问题数量统计表"
+      new: "农村人居环境检查发现各村问题数量统计表"
+  horizontal_merge_rules:
+    - table_name: "category_total_row"
+      table_index: 0
+      row_index: -1
+      start_column: 0
+      end_column: 1
+      expected_texts: ["总计", "总计"]
+      text: "总计"
+      bold_row: true
+    - table_name: "problem_type_total_row"
+      table_index: 1
+      row_index: -1
+      start_column: 0
+      end_column: 2
+      expected_texts: ["总计", "总计", "总计"]
+      text: "总计"
+      bold_row: true
+    - table_name: "village_total_row"
+      table_index: 3
+      row_index: -1
+      start_column: 0
+      end_column: 1
+      expected_texts: ["总计", "总计"]
+      text: "总计"
+      bold_row: true
   merge_rules:
+    - table_name: "problem_type_rows"
+      table_index: 1
+      column_index: 1
+      start_row: 1
+      key_columns: [1]
+      merge_empty: false
     - table_name: "village_rows"
       table_index: 3
       column_index: 0

@@ -14,7 +14,7 @@ from .models import (
     VillageEntry,
     VillageRow,
 )
-from .utils import natural_join, normalize_text, pct_text
+from .utils import normalize_text, pct_text
 
 
 def _clean_village(record: CaseRecord, villages_by_norm: dict[str, VillageEntry]) -> tuple[str, str]:
@@ -100,11 +100,17 @@ def build_report_stats(
             seq += 1
     category_rows.append(CategoryRow("总计", "总计", total, 1 if total else 0, "100.00%" if total else "0.00%"))
 
-    sorted_problem_items = sorted(problem_counts.items(), key=lambda kv: (-kv[1], str(kv[0][1])))
+    category_rank = {name: idx for idx, name in enumerate(category_order)}
+    sort_mode = rules.get("statistics", {}).get("problem_type_sort", "category_then_count_desc")
+    if sort_mode == "count_desc":
+        sorted_problem_items = sorted(problem_counts.items(), key=lambda kv: (-kv[1], str(kv[0][1])))
+    else:
+        sorted_problem_items = sorted(problem_counts.items(), key=lambda kv: (category_rank.get(kv[0][0], 999), -kv[1], str(kv[0][1])))
     problem_type_rows = [
         ProblemTypeRow(i, category, problem, count, count / total if total else 0, pct_text(count, total))
         for i, ((category, problem), count) in enumerate(sorted_problem_items, 1)
     ]
+    problem_type_rows.append(ProblemTypeRow("总计", "总计", "总计", total, 1 if total else 0, "100.00%" if total else "0.00%"))
 
     ordered_towns = [town for town in town_order if town_counts.get(town, 0)] + sorted(t for t in town_counts if t not in town_order)
     town_rows = [
@@ -128,6 +134,17 @@ def build_report_stats(
                     total_count=sum(counts.values()),
                 )
             )
+    village_rows.append(
+        VillageRow(
+            town_name="总计",
+            village_name="总计",
+            garbage_count=category_counts.get("农村生活垃圾治理", 0),
+            village_appearance_count=category_counts.get("村容村貌整治", 0),
+            sewage_count=category_counts.get("农村生活污水", 0),
+            toilet_count=category_counts.get("农村厕所革命", 0),
+            total_count=total,
+        )
+    )
 
     warnings: list[ValidationWarning] = []
     for indicator, count in sorted(unmapped.items(), key=lambda kv: (-kv[1], kv[0])):
@@ -148,20 +165,80 @@ def build_report_stats(
         town_rows=town_rows,
         village_rows=village_rows,
         category_analysis_items=_build_category_analysis(category_rows, category_village_counts, total),
-        high_frequency_problem_items=_build_high_frequency(problem_type_rows, problem_village_counts, total),
+        high_frequency_problem_items=_build_high_frequency(problem_counts, problem_village_counts, total),
         validation_warnings=warnings,
         village_indicator_counts={key: dict(counter) for key, counter in village_subcategory_counts.items()},
         unmapped_indicator_counts=dict(unmapped),
     )
 
 
-def _top_villages_text(counter: Counter, limit: int = 3) -> str:
+def _village_display_name(town: str, village: str, previous_town: str | None) -> str:
+    return village if previous_town == town else f"{town}{village}"
+
+
+def _format_village_groups(
+    groups: list[tuple[list[tuple[str, str]], int]],
+    separator: str,
+) -> str:
+    parts = []
+    previous_town = None
+    for villages, count in groups:
+        if len(villages) == 1:
+            town, village = villages[0]
+            parts.append(f"{_village_display_name(town, village, previous_town)}（{count}个）")
+            previous_town = town
+            continue
+        names = []
+        for town, village in villages:
+            names.append(_village_display_name(town, village, previous_town))
+            previous_town = town
+        parts.append(f"{'和'.join(names)}（各{count}个）")
+    return separator.join(parts)
+
+
+def _top_village_groups(counter: Counter, limit: int, include_ties: bool) -> list[tuple[list[tuple[str, str]], int]]:
+    ranked = counter.most_common()
+    if not ranked:
+        return []
+    selected = ranked[:limit]
+    if include_ties and len(ranked) > limit:
+        boundary = selected[-1][1]
+        selected.extend(item for item in ranked[limit:] if item[1] == boundary)
+    groups: list[tuple[list[tuple[str, str]], int]] = []
+    for key, count in selected:
+        if groups and groups[-1][1] == count:
+            groups[-1][0].append(key)
+        else:
+            groups.append(([key], count))
+    return groups
+
+
+def _category_villages_text(category: str, counter: Counter) -> str:
     if not counter:
         return ""
-    parts = []
-    for (town, village), count in counter.most_common(limit):
-        parts.append(f"{town}{village}（{count}个）")
-    return "主要集中在" + "、".join(parts)
+    village_count = len(counter)
+    if village_count == 1:
+        (town, village), _count = counter.most_common(1)[0]
+        return f"具体发生在{town}{village}"
+    if category == "农村厕所革命":
+        (town, village), _count = counter.most_common(1)[0]
+        return f"具体发生在{town}{village}"
+    limit = 2 if category == "农村生活污水" else 3
+    include_ties = category == "农村生活垃圾治理"
+    groups = _top_village_groups(counter, limit, include_ties)
+    if len(groups) == 2:
+        separator = "和"
+    else:
+        separator = "，" if any(len(villages) > 1 for villages, _count in groups) else "、"
+    return f"涉及{_format_village_groups(groups, separator)}等{village_count}个村"
+
+
+def _high_frequency_villages_text(counter: Counter) -> str:
+    if not counter:
+        return ""
+    village_count = len(counter)
+    groups = _top_village_groups(counter, 2, False)
+    return f"主要集中在{_format_village_groups(groups, '、')}等{village_count}个村"
 
 
 def _build_category_analysis(category_rows: list[CategoryRow], category_village_counts: dict[str, Counter], total: int) -> list[AnalysisItem]:
@@ -169,19 +246,20 @@ def _build_category_analysis(category_rows: list[CategoryRow], category_village_
     for row in category_rows:
         if row.name == "总计":
             continue
-        items.append(AnalysisItem(row.name, row.count, row.rate_text, _top_villages_text(category_village_counts.get(row.name, Counter()))))
+        items.append(AnalysisItem(row.name, row.count, row.rate_text, _category_villages_text(row.name, category_village_counts.get(row.name, Counter()))))
     return items
 
 
-def _build_high_frequency(problem_rows: list[ProblemTypeRow], problem_village_counts: dict[str, Counter], total: int) -> list[AnalysisItem]:
+def _build_high_frequency(problem_counts: Counter, problem_village_counts: dict[str, Counter], total: int) -> list[AnalysisItem]:
     items = []
-    for row in problem_rows[:3]:
-        items.append(AnalysisItem(row.problem_name, row.count, row.rate_text, _top_villages_text(problem_village_counts.get(row.problem_name, Counter()))))
+    top_items = sorted(problem_counts.items(), key=lambda kv: (-kv[1], str(kv[0][1])))[:3]
+    for (_category, problem_name), count in top_items:
+        items.append(AnalysisItem(problem_name, count, pct_text(count, total), _high_frequency_villages_text(problem_village_counts.get(problem_name, Counter()))))
     return items
 
 
 def summarize_towns(town_rows: list[TownRow]) -> str:
-    return "，".join(f"{row.town_name}发现问题{row.count}个，占比{row.rate_text}" for row in town_rows)
+    return "，".join(f"{row.town_name}发现问题{row.count}个，占比{row.rate_text}" for row in town_rows if row.town_name != "总计")
 
 
 def summarize_villages(village_rows: list[VillageRow]) -> str:

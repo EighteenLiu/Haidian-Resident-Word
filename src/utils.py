@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +10,13 @@ from typing import Any, Iterable
 import yaml
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+def get_project_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
+
+
+PROJECT_ROOT = get_project_root()
 RUNTIME_DIR = PROJECT_ROOT / ".runtime"
 
 

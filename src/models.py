@@ -103,7 +103,7 @@ class CategoryRow:
 
 @dataclass
 class ProblemTypeRow:
-    seq: int
+    seq: int | str
     category_name: str
     problem_name: str
     count: int
@@ -113,7 +113,7 @@ class ProblemTypeRow:
 
 @dataclass
 class TownRow:
-    seq: int
+    seq: int | str
     town_name: str
     count: int
     rate: float
