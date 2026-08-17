@@ -6,7 +6,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
 
-from .models import CaseRecord, ReportStats, RoadMatchResult, VillageEntry
+from .models import CaseRecord, ReportStats, VillageEntry
 from .utils import display_village_name, normalize_header, normalize_text
 
 
@@ -194,12 +194,14 @@ def _write_sheet1(ws, stats: ReportStats, villages: list[VillageEntry]) -> None:
 def _write_detail_sheet(wb, records: list[CaseRecord]) -> None:
     if "数据明细" in wb.sheetnames:
         ws = wb["数据明细"]
-        if ws.max_row > 1:
-            ws.delete_rows(2, ws.max_row - 1)
+        if ws.max_row > 2:
+            ws.delete_rows(3, ws.max_row - 2)
     else:
         ws = wb.create_sheet("数据明细")
     for col, header in enumerate(DETAIL_HEADERS, 1):
         ws.cell(1, col).value = header
+    for col in range(1, max(ws.max_column, len(DETAIL_HEADERS)) + 1):
+        ws.cell(2, col).value = None
     for row_idx, record in enumerate(records, 2):
         if row_idx > 2:
             _copy_row_style(ws, 2, row_idx, len(DETAIL_HEADERS))
@@ -230,26 +232,3 @@ def _write_unmapped_sheet(wb, stats: ReportStats) -> None:
     for name, count in sorted(stats.unmapped_indicator_counts.items(), key=lambda kv: (-kv[1], kv[0])):
         ws.append([name, count])
 
-
-def write_road_checklist(path: Path, results: list[RoadMatchResult]) -> Path:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "道路匹配校验"
-    ws.append(["状态", "编号", "街镇分中心", "检查点位（2级）", "检查点位（3级）", "道路", "命中道路", "说明"])
-    for result in results:
-        if result.status == "MATCHED":
-            continue
-        entry = result.matched_entry
-        ws.append([
-            result.status,
-            result.record.case_id,
-            result.record.street_center,
-            result.record.point_level_2,
-            result.record.point_level_3,
-            result.record.road,
-            entry.road if entry else "",
-            result.message,
-        ])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(path)
-    return path

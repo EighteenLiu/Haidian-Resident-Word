@@ -17,7 +17,7 @@ inspection:
   default_start_day_previous_month: 18
 road_filter:
   enabled: true
-  unmatched_policy: "warn_and_checklist"
+  unmatched_policy: "warn_only"
   statistics_policy: "matched_or_non_assessment_empty"
 statistics:
   category_order:

@@ -21,7 +21,7 @@ from .road_matcher import apply_road_statistics_policy, match_roads
 from .statistics_builder import build_report_stats
 from .utils import PROJECT_ROOT, ensure_project_runtime, find_first_by_patterns, load_yaml, strip_lock_files
 from .validation import validate_classification, validate_output_dir
-from .xlsx_writer import write_road_checklist, write_statistics_xlsx
+from .xlsx_writer import write_statistics_xlsx
 
 
 Progress = Callable[[str], None]
@@ -32,7 +32,6 @@ class PipelineResult:
     output_dir: Path
     xlsx_path: Path
     docx_path: Path
-    road_checklist_path: Path
     log_path: Path
     stats: ReportStats
     elapsed_seconds: float
@@ -166,11 +165,9 @@ def run_pipeline(
         validate_output_dir(output_dir)
         xlsx_path = output_dir / f"附件3：海淀区农村人居环境检查情况统计表-城环建平台（{options.report_month}月）.xlsx"
         docx_path = output_dir / f"海淀区{options.report_year}年{options.report_month}月份农村人居环境检查分析报告.docx"
-        road_checklist_path = output_dir / "道路匹配校验清单.xlsx"
         log_path = output_dir / "运行日志.txt"
         emit("正在生成统计表...")
         write_statistics_xlsx(xlsx_template, xlsx_path, stats, effective_for_stats, villages)
-        write_road_checklist(road_checklist_path, road_results)
         emit("正在生成 Word 报告...")
         context = build_docx_context(stats, options)
         render_docx_report(word_template, docx_path, context, config)
@@ -190,11 +187,10 @@ def run_pipeline(
                 f"未映射指标数量：{sum(stats.unmapped_indicator_counts.values())}",
                 f"统计表：{xlsx_path}",
                 f"Word 报告：{docx_path}",
-                f"道路校验：{road_checklist_path}",
             ]
         )
         log_path.write_text("\n".join(log_lines), encoding="utf-8")
-        return PipelineResult(output_dir, xlsx_path, docx_path, road_checklist_path, log_path, stats, elapsed)
+        return PipelineResult(output_dir, xlsx_path, docx_path, log_path, stats, elapsed)
     except Exception:
         if output_dir:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
