@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import re
+
 from .models import CaseRecord, RoadLedgerEntry, RoadMatchResult
 from .utils import normalize_text
 
 
-def _candidate_keys(record: CaseRecord, ledger_villages: set[str] | None = None) -> list[str]:
-    roads = _road_variants(record.road)
-    if not roads:
+PRIMARY_MATCH_WITH_PARENTHESES = {normalize_text("前章村路（前章村主路）")}
+
+
+def _parenthesized_road_alias(value: str) -> str:
+    road = normalize_text(value)
+    if "(" not in road or ")" not in road:
+        return ""
+    after_left = road.split("(", 1)[1]
+    return after_left.split(")", 1)[0].strip()
+
+
+def _candidate_keys(record: CaseRecord, road: str, ledger_villages: set[str] | None = None) -> list[str]:
+    if not road:
         return []
     street = normalize_text(record.street_center or record.point_level_2)
     raw_village = normalize_text(record.point_level_3)
@@ -17,41 +29,28 @@ def _candidate_keys(record: CaseRecord, ledger_villages: set[str] | None = None)
         if raw_village.endswith(ledger_village):
             villages.append(ledger_village)
     keys = []
-    for road in roads:
-        for village in dict.fromkeys(v for v in villages if v):
-            if street:
-                keys.append(street + "|" + village + "|" + road)
-            keys.append(village + "|" + road)
+    for village in dict.fromkeys(v for v in villages if v):
+        if street:
+            keys.append(street + "|" + village + "|" + road)
+        keys.append(village + "|" + road)
     return keys
 
 
-def _road_variants(value: str) -> list[str]:
-    road = normalize_text(value)
-    if not road:
-        return []
-    variants = [road]
-    for left, right in (("(", ")"),):
-        if left in road and right in road:
-            before = road.split(left, 1)[0]
-            inside = road.split(left, 1)[1].split(right, 1)[0]
-            variants.extend([before, inside])
-    return list(dict.fromkeys(v for v in variants if v))
-
-
 def match_roads(records: list[CaseRecord], ledger: list[RoadLedgerEntry]) -> list[RoadMatchResult]:
-    index: dict[str, RoadLedgerEntry] = {}
-    alias_keys: set[str] = set()
+    primary_index: dict[str, RoadLedgerEntry] = {}
+    alias_index: dict[str, RoadLedgerEntry] = {}
     for entry in ledger:
-        primary_keys = set()
         ns, nv, nr = normalize_text(entry.street), normalize_text(entry.village), normalize_text(entry.road)
         if ns and nv and nr:
-            primary_keys.add(ns + "|" + nv + "|" + nr)
+            primary_index[ns + "|" + nv + "|" + nr] = entry
         if nv and nr:
-            primary_keys.add(nv + "|" + nr)
-        for key in entry.normalized_keys:
-            index[key] = entry
-            if key not in primary_keys:
-                alias_keys.add(key)
+            primary_index[nv + "|" + nr] = entry
+        for alias in re.split(r"[;；、,，/]+", entry.alias or ""):
+            na = normalize_text(alias)
+            if ns and nv and na:
+                alias_index[ns + "|" + nv + "|" + na] = entry
+            if nv and na:
+                alias_index[nv + "|" + na] = entry
 
     known_villages = {normalize_text(e.street) + "|" + normalize_text(e.village) for e in ledger}
     ledger_villages = {normalize_text(e.village) for e in ledger}
@@ -60,12 +59,26 @@ def match_roads(records: list[CaseRecord], ledger: list[RoadLedgerEntry]) -> lis
         if not normalize_text(record.road):
             results.append(RoadMatchResult(record, "ROAD_EMPTY", message="道路字段为空"))
             continue
-        keys = _candidate_keys(record, ledger_villages)
-        matched_key = next((key for key in keys if key in index), "")
-        if matched_key:
-            status = "MATCHED_ALIAS" if matched_key in alias_keys else "MATCHED"
-            results.append(RoadMatchResult(record, status, index[matched_key], matched_key))
-            continue
+        road = normalize_text(record.road)
+        if road in PRIMARY_MATCH_WITH_PARENTHESES:
+            keys = _candidate_keys(record, road, ledger_villages)
+            matched_key = next((key for key in keys if key in primary_index), "")
+            if matched_key:
+                results.append(RoadMatchResult(record, "MATCHED", primary_index[matched_key], matched_key))
+                continue
+        alias = _parenthesized_road_alias(record.road)
+        if alias:
+            keys = _candidate_keys(record, alias, ledger_villages)
+            matched_key = next((key for key in keys if key in alias_index), "")
+            if matched_key:
+                results.append(RoadMatchResult(record, "MATCHED_ALIAS", alias_index[matched_key], matched_key))
+                continue
+        else:
+            keys = _candidate_keys(record, road, ledger_villages)
+            matched_key = next((key for key in keys if key in primary_index), "")
+            if matched_key:
+                results.append(RoadMatchResult(record, "MATCHED", primary_index[matched_key], matched_key))
+                continue
         street = normalize_text(record.street_center or record.point_level_2)
         raw_village = normalize_text(record.point_level_3)
         villages = [raw_village]

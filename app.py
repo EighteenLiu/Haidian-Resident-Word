@@ -22,6 +22,18 @@ os.environ.setdefault("TEMP", str(PROJECT_ROOT / ".runtime" / "tmp"))
 Path(os.environ["TMP"]).mkdir(parents=True, exist_ok=True)
 
 
+def merge_source_files(existing: list[Path], selected: list[Path]) -> list[Path]:
+    merged: list[Path] = []
+    seen: set[str] = set()
+    for path in [*existing, *selected]:
+        resolved = str(Path(path).resolve()).casefold()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        merged.append(Path(path))
+    return merged
+
+
 class ResidentReportApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
@@ -55,7 +67,7 @@ class ResidentReportApp(ctk.CTk):
         self.source_text.grid(row=0, column=1, sticky="ew", padx=4, pady=(10, 4))
         source_buttons = ctk.CTkFrame(self.upload_frame, fg_color="transparent")
         source_buttons.grid(row=0, column=2, sticky="new", padx=(4, 10), pady=(10, 4))
-        self.choose_source_btn = ctk.CTkButton(source_buttons, text="选择", command=self.choose_sources, width=96)
+        self.choose_source_btn = ctk.CTkButton(source_buttons, text="添加", command=self.choose_sources, width=96)
         self.choose_source_btn.pack(fill="x", pady=(0, 6))
         self.recognize_btn = ctk.CTkButton(source_buttons, text="识别", command=self.recognize_sources, width=96)
         self.recognize_btn.pack(fill="x", pady=(0, 6))
@@ -122,10 +134,16 @@ class ResidentReportApp(ctk.CTk):
         textbox.configure(state="disabled")
 
     def choose_sources(self) -> None:
-        paths = filedialog.askopenfilenames(title="选择源数据文件", filetypes=[("Excel files", "*.xlsx *.xlsm *.xls"), ("All files", "*.*")])
+        paths = filedialog.askopenfilenames(title="添加源数据文件", filetypes=[("Excel files", "*.xlsx *.xlsm *.xls"), ("All files", "*.*")])
         if paths:
-            self.source_files = [Path(p) for p in paths]
+            before_count = len(self.source_files)
+            self.source_files = merge_source_files(self.source_files, [Path(p) for p in paths])
             self.refresh_source_list()
+            added_count = len(self.source_files) - before_count
+            if added_count:
+                self.status_var.set(f"已添加 {added_count} 个源文件，点击识别")
+            else:
+                self.status_var.set("选择的源文件已在列表中")
 
     def clear_sources(self) -> None:
         self.source_files = []

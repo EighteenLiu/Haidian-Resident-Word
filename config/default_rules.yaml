@@ -8,10 +8,7 @@ filters:
   require_deadline_in_report_month: true
   require_indicator_mapped: true
   require_village_in_dict: true
-  excluded_case_ids:
-    # The reference June submission excludes this ledger-matched road case.
-    # Remove it after the business owner confirms it should be counted.
-    - "2026062300627"
+  excluded_case_ids: []
 inspection:
   rounds: 2
   default_start_day_previous_month: 18
