@@ -136,18 +136,33 @@ def write_statistics_xlsx(
     villages: list[VillageEntry],
 ) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if template_path and Path(template_path).exists():
-        wb = load_workbook(template_path)
-    else:
-        wb = Workbook()
-        wb.active.title = "sheet1"
-    ws = wb["sheet1"] if "sheet1" in wb.sheetnames else wb.active
+    wb = _load_or_create_workbook(template_path)
+    _write_statistics_content(wb, stats, records, villages)
+    wb.save(output_path)
+    return output_path
 
+
+def sync_statistics_sheet1(xlsx_path: Path, stats: ReportStats, villages: list[VillageEntry]) -> Path:
+    xlsx_path = Path(xlsx_path)
+    wb = load_workbook(xlsx_path)
+    _write_sheet1(wb["sheet1"] if "sheet1" in wb.sheetnames else wb.active, stats, villages)
+    wb.save(xlsx_path)
+    return xlsx_path
+
+
+def _load_or_create_workbook(template_path: Path | None):
+    if template_path and Path(template_path).exists():
+        return load_workbook(template_path)
+    wb = Workbook()
+    wb.active.title = "sheet1"
+    return wb
+
+
+def _write_statistics_content(wb, stats: ReportStats, records: list[CaseRecord], villages: list[VillageEntry]) -> None:
+    ws = wb["sheet1"] if "sheet1" in wb.sheetnames else wb.active
     _write_sheet1(ws, stats, villages)
     _write_detail_sheet(wb, records)
     _write_unmapped_sheet(wb, stats)
-    wb.save(output_path)
-    return output_path
 
 
 def _write_sheet1(ws, stats: ReportStats, villages: list[VillageEntry]) -> None:
@@ -231,4 +246,3 @@ def _write_unmapped_sheet(wb, stats: ReportStats) -> None:
     ws.append(["指标小类", "数量"])
     for name, count in sorted(stats.unmapped_indicator_counts.items(), key=lambda kv: (-kv[1], kv[0])):
         ws.append([name, count])
-

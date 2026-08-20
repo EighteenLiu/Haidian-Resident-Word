@@ -4,7 +4,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-from src.word_postprocess import HorizontalMergeRule, MergeRule, ParagraphReplacementRule, apply_word_postprocess, merge_vertical_same_cells
+from src.word_postprocess import HorizontalMergeRule, MergeRule, ParagraphReplacementRule, ParagraphStyleRule, apply_word_postprocess, merge_vertical_same_cells
 
 
 def test_merge_vertical_same_cells(tmp_path):
@@ -135,3 +135,35 @@ def test_apply_word_postprocess_replaces_paragraph_text(tmp_path):
 
     checked = Document(output)
     assert checked.paragraphs[0].text == "表3  2026年6月农村人居环境检查发现各村问题数量统计表"
+
+
+def test_apply_word_postprocess_styles_table_three_title(tmp_path):
+    source = tmp_path / "source.docx"
+    output = tmp_path / "output.docx"
+    doc = Document()
+    doc.add_paragraph("表3  2026年7月农村人居环境检查发现各村问题数量统计表")
+    doc.save(source)
+
+    apply_word_postprocess(
+        source,
+        output,
+        [],
+        [],
+        [],
+        [
+            ParagraphStyleRule(
+                text="农村人居环境检查发现各村问题数量统计表",
+                font_name="方正小标宋简体",
+                size_pt=14,
+                bold=False,
+                align="center",
+            )
+        ],
+    )
+
+    checked = Document(output)
+    paragraph = checked.paragraphs[0]
+    assert paragraph.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert paragraph.runs[0].bold is False
+    assert paragraph.runs[0].font.size.pt == 14
+    assert paragraph.runs[0].font.name == "方正小标宋简体"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 import traceback
 import calendar
@@ -14,14 +15,14 @@ from openpyxl import load_workbook
 from .data_filter import filter_effective_records
 from .docx_context import build_docx_context
 from .docx_writer import render_docx_report
-from .excel_reader import read_dictionary, read_main_records, read_road_ledger
+from .excel_reader import read_detail_records, read_dictionary, read_main_records, read_road_ledger
 from .file_classifier import FileType, classify_files, require_single
 from .models import ReportOptions, ReportStats
 from .road_matcher import apply_road_statistics_policy, match_roads
 from .statistics_builder import build_report_stats
 from .utils import PROJECT_ROOT, ensure_project_runtime, find_first_by_patterns, load_yaml, strip_lock_files
 from .validation import validate_classification, validate_output_dir
-from .xlsx_writer import write_statistics_xlsx
+from .xlsx_writer import sync_statistics_sheet1, write_statistics_xlsx
 
 
 Progress = Callable[[str], None]
@@ -31,6 +32,25 @@ Progress = Callable[[str], None]
 class PipelineResult:
     output_dir: Path
     xlsx_path: Path
+    docx_path: Path
+    log_path: Path
+    stats: ReportStats
+    elapsed_seconds: float
+
+
+@dataclass
+class LedgerResult:
+    output_dir: Path
+    xlsx_path: Path
+    log_path: Path
+    stats: ReportStats
+    options: ReportOptions
+    elapsed_seconds: float
+
+
+@dataclass
+class ReportResult:
+    output_dir: Path
     docx_path: Path
     log_path: Path
     stats: ReportStats
@@ -98,11 +118,27 @@ def run_pipeline(
     output_dir: Path | None = None,
     progress: Progress | None = None,
 ) -> PipelineResult:
-    started = time.perf_counter()
+    ledger = generate_ledger(source_files, xlsx_template, options, output_dir, progress)
+    report = generate_report_from_ledger(ledger.xlsx_path, source_files, word_template, options or ledger.options, ledger.output_dir, progress)
+    return PipelineResult(ledger.output_dir, ledger.xlsx_path, report.docx_path, report.log_path, report.stats, ledger.elapsed_seconds + report.elapsed_seconds)
+
+
+def _prepare_runtime() -> None:
     ensure_project_runtime()
     os.environ.setdefault("TMP", str(PROJECT_ROOT / ".runtime" / "tmp"))
     os.environ.setdefault("TEMP", str(PROJECT_ROOT / ".runtime" / "tmp"))
     Path(os.environ["TMP"]).mkdir(parents=True, exist_ok=True)
+
+
+def generate_ledger(
+    source_files: list[Path],
+    xlsx_template: Path | None = None,
+    options: ReportOptions | None = None,
+    output_dir: Path | None = None,
+    progress: Progress | None = None,
+) -> LedgerResult:
+    started = time.perf_counter()
+    _prepare_runtime()
 
     log_lines: list[str] = []
 
@@ -155,24 +191,17 @@ def run_pipeline(
         emit("正在统计问题数量...")
         emit(f"纳入统计案件：{len(effective_for_stats)} 条")
         stats = build_report_stats(effective_for_stats, villages, mappings, config)
-        word_template = Path(word_template) if word_template else default_word_template()
         xlsx_template = Path(xlsx_template) if xlsx_template else default_xlsx_template()
-        if not word_template or not word_template.exists():
-            raise ValueError("未找到 Word 模板，请手动选择模板文件")
         if not xlsx_template or not xlsx_template.exists():
             raise ValueError("未找到 xlsx 模板或参考提交表，请手动选择模板文件")
         output_dir = Path(output_dir) if output_dir else PROJECT_ROOT / "output" / datetime.now().strftime("%Y%m%d_%H%M%S")
         validate_output_dir(output_dir)
         xlsx_path = output_dir / f"附件3：海淀区农村人居环境检查情况统计表-城环建平台（{options.report_month}月）.xlsx"
-        docx_path = output_dir / f"海淀区{options.report_year}年{options.report_month}月份农村人居环境检查分析报告.docx"
-        log_path = output_dir / "运行日志.txt"
+        log_path = output_dir / "台账生成日志.txt"
         emit("正在生成统计表...")
         write_statistics_xlsx(xlsx_template, xlsx_path, stats, effective_for_stats, villages)
-        emit("正在生成 Word 报告...")
-        context = build_docx_context(stats, options)
-        render_docx_report(word_template, docx_path, context, config)
         elapsed = time.perf_counter() - started
-        emit(f"生成完成，用时 {elapsed:.2f} 秒")
+        emit(f"台账生成完成，用时 {elapsed:.2f} 秒")
         emit(f"输出目录：{output_dir}")
         log_lines.extend(
             [
@@ -180,21 +209,94 @@ def run_pipeline(
                 f"主数据：{main_file.path}",
                 f"村指标字典：{dict_file.path}",
                 f"道路台账：{road_file.path}",
-                f"Word 模板：{word_template}",
                 f"xlsx 模板/参考：{xlsx_template}",
                 f"报告年月：{options.report_year}年{options.report_month}月",
                 f"有效案件数量：{len(effective)}",
                 f"未映射指标数量：{sum(stats.unmapped_indicator_counts.values())}",
-                f"统计表：{xlsx_path}",
+                f"生成台账：{xlsx_path}",
+            ]
+        )
+        log_path.write_text("\n".join(log_lines), encoding="utf-8")
+        return LedgerResult(output_dir, xlsx_path, log_path, stats, options, elapsed)
+    except Exception:
+        if output_dir:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            (Path(output_dir) / "台账生成日志.txt").write_text("\n".join(log_lines) + "\n\n" + traceback.format_exc(), encoding="utf-8")
+        raise
+
+
+def generate_report_from_ledger(
+    ledger_path: Path,
+    source_files: list[Path],
+    word_template: Path | None = None,
+    options: ReportOptions | None = None,
+    output_dir: Path | None = None,
+    progress: Progress | None = None,
+) -> ReportResult:
+    started = time.perf_counter()
+    _prepare_runtime()
+
+    log_lines: list[str] = []
+
+    def emit(message: str) -> None:
+        log_lines.append(message)
+        if progress:
+            progress(message)
+
+    try:
+        config = load_yaml(PROJECT_ROOT / "config" / "default_rules.yaml")
+        ledger_path = Path(ledger_path)
+        if not ledger_path.exists():
+            raise ValueError("未找到用于报告生成的台账 xlsx，请先生成台账或手动选择。")
+        emit("正在识别字典文件...")
+        source_paths = strip_lock_files(source_files)
+        classified = classify_files(source_paths)
+        dict_file = require_single(classified, FileType.DICTIONARY)
+        emit("正在读取村指标字典...")
+        villages, mappings = read_dictionary(dict_file.path)
+        emit("正在读取台账数据明细...")
+        records = read_detail_records(ledger_path)
+        if not records:
+            raise ValueError("台账数据明细为空，请检查台账 xlsx。")
+        emit(f"台账明细案件：{len(records)} 条")
+        emit("正在按台账明细重新统计...")
+        stats = build_report_stats(records, villages, mappings, config)
+        emit("正在更新统计表 sheet1...")
+        sync_statistics_sheet1(ledger_path, stats, villages)
+        word_template = Path(word_template) if word_template else default_word_template()
+        if not word_template or not word_template.exists():
+            raise ValueError("未找到 Word 模板，请手动选择模板文件")
+        if options is None:
+            options = ReportOptions(datetime.now().year, datetime.now().month, None, None, int(config.get("inspection", {}).get("rounds", 2)))
+        output_dir = Path(output_dir) if output_dir else ledger_path.parent
+        validate_output_dir(output_dir)
+        docx_path = output_dir / f"海淀区{options.report_year}年{options.report_month}月份农村人居环境检查分析报告.docx"
+        log_path = output_dir / "报告生成日志.txt"
+        emit("正在生成 Word 报告...")
+        context = build_docx_context(stats, options)
+        render_docx_report(word_template, docx_path, context, config)
+        elapsed = time.perf_counter() - started
+        emit(f"报告生成完成，用时 {elapsed:.2f} 秒")
+        emit(f"输出目录：{output_dir}")
+        log_lines.extend(
+            [
+                "",
+                f"生成台账：{ledger_path}",
+                f"村指标字典：{dict_file.path}",
+                f"Word 模板：{word_template}",
+                f"报告年月：{options.report_year}年{options.report_month}月",
+                f"台账明细案件数量：{len(records)}",
+                f"已更新统计表：{ledger_path}",
+                f"未映射指标数量：{sum(stats.unmapped_indicator_counts.values())}",
                 f"Word 报告：{docx_path}",
             ]
         )
         log_path.write_text("\n".join(log_lines), encoding="utf-8")
-        return PipelineResult(output_dir, xlsx_path, docx_path, log_path, stats, elapsed)
+        return ReportResult(output_dir, docx_path, log_path, stats, elapsed)
     except Exception:
         if output_dir:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
-            (Path(output_dir) / "运行日志.txt").write_text("\n".join(log_lines) + "\n\n" + traceback.format_exc(), encoding="utf-8")
+            (Path(output_dir) / "报告生成日志.txt").write_text("\n".join(log_lines) + "\n\n" + traceback.format_exc(), encoding="utf-8")
         raise
 
 
@@ -202,3 +304,27 @@ def parse_dates_from_main_file(path: Path, sheet_name: str | None = None) -> Rep
     records = read_main_records(path, sheet_name)
     config = load_yaml(PROJECT_ROOT / "config" / "default_rules.yaml")
     return parse_report_options(records, default_start_day_previous_month=int(config.get("inspection", {}).get("default_start_day_previous_month", 18)))
+
+
+def parse_dates_from_ledger_file(path: Path) -> ReportOptions:
+    path = Path(path)
+    records = read_detail_records(path)
+    if not records:
+        raise ValueError("台账数据明细为空，无法识别报告日期。")
+    config = load_yaml(PROJECT_ROOT / "config" / "default_rules.yaml")
+    default_start_day = int(config.get("inspection", {}).get("default_start_day_previous_month", 18))
+    month_match = re.search(r"[（(](\d{1,2})月[)）]", path.stem)
+    report_month = int(month_match.group(1)) if month_match else None
+    if report_month is None:
+        month_candidates = [r.report_time.month for r in records if r.report_time] or [r.deadline_time.month for r in records if r.deadline_time]
+        report_month = month_candidates[0] if month_candidates else None
+    year_candidates = [r.report_time.year for r in records if r.report_time] + [r.deadline_time.year for r in records if r.deadline_time]
+    report_year = max(year_candidates) if year_candidates else datetime.now().year
+    if report_month is None:
+        report_month = datetime.now().month
+    return parse_report_options(
+        records,
+        report_year=report_year,
+        report_month=report_month,
+        default_start_day_previous_month=default_start_day,
+    )

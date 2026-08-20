@@ -8,6 +8,7 @@ from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 
 @dataclass
@@ -36,6 +37,15 @@ class HorizontalMergeRule:
 class ParagraphReplacementRule:
     old: str
     new: str
+
+
+@dataclass
+class ParagraphStyleRule:
+    text: str
+    font_name: str = ""
+    size_pt: float | None = None
+    bold: bool | None = None
+    align: str = ""
 
 
 def _cell_text(cell) -> str:
@@ -101,6 +111,37 @@ def _center_all_table_cells(doc: Document) -> None:
                 _center_cell(cell)
 
 
+def _set_run_font(run, font_name: str, size_pt: float | None, bold: bool | None) -> None:
+    if font_name:
+        run.font.name = font_name
+        r_pr = run._element.get_or_add_rPr()
+        r_fonts = r_pr.find(qn("w:rFonts"))
+        if r_fonts is None:
+            r_fonts = OxmlElement("w:rFonts")
+            r_pr.append(r_fonts)
+        r_fonts.set(qn("w:ascii"), font_name)
+        r_fonts.set(qn("w:hAnsi"), font_name)
+        r_fonts.set(qn("w:cs"), font_name)
+        r_fonts.set(qn("w:eastAsia"), font_name)
+    if size_pt is not None:
+        run.font.size = Pt(size_pt)
+    if bold is not None:
+        run.bold = bold
+
+
+def apply_paragraph_style_rule(doc: Document, rule: ParagraphStyleRule) -> None:
+    for paragraph in doc.paragraphs:
+        if rule.text not in paragraph.text:
+            continue
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if rule.align == "center" else paragraph.alignment
+        fmt = paragraph.paragraph_format
+        fmt.space_before = Pt(0)
+        fmt.space_after = Pt(0)
+        for run in paragraph.runs or [paragraph.add_run("")]:
+            _set_run_font(run, rule.font_name, rule.size_pt, rule.bold)
+        break
+
+
 def merge_same_cells_in_column(table, rule: MergeRule) -> None:
     if len(table.rows) <= rule.start_row:
         return
@@ -142,12 +183,15 @@ def apply_word_postprocess(
     vertical_rules: list[MergeRule],
     horizontal_rules: list[HorizontalMergeRule] | None = None,
     paragraph_replacements: list[ParagraphReplacementRule] | None = None,
+    paragraph_styles: list[ParagraphStyleRule] | None = None,
 ) -> None:
     doc = Document(docx_path)
     for rule in paragraph_replacements or []:
         for paragraph in doc.paragraphs:
             if rule.old in paragraph.text:
                 paragraph.text = paragraph.text.replace(rule.old, rule.new)
+    for rule in paragraph_styles or []:
+        apply_paragraph_style_rule(doc, rule)
     for rule in vertical_rules:
         if rule.table_index >= len(doc.tables):
             continue
@@ -161,7 +205,7 @@ def apply_word_postprocess(
 
 
 def merge_vertical_same_cells(docx_path: Path, output_path: Path, rules: list[MergeRule]) -> None:
-    apply_word_postprocess(docx_path, output_path, rules, [], [])
+    apply_word_postprocess(docx_path, output_path, rules, [], [], [])
 
 
 def rules_from_config(config: dict) -> list[MergeRule]:
@@ -202,6 +246,20 @@ def paragraph_replacements_from_config(config: dict) -> list[ParagraphReplacemen
         ParagraphReplacementRule(
             old=str(item["old"]),
             new=str(item["new"]),
+        )
+        for item in items
+    ]
+
+
+def paragraph_styles_from_config(config: dict) -> list[ParagraphStyleRule]:
+    items = config.get("word_postprocess", {}).get("paragraph_styles", [])
+    return [
+        ParagraphStyleRule(
+            text=str(item["text"]),
+            font_name=str(item.get("font_name", "")),
+            size_pt=float(item["size_pt"]) if "size_pt" in item and item["size_pt"] is not None else None,
+            bold=item.get("bold"),
+            align=str(item.get("align", "")),
         )
         for item in items
     ]

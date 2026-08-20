@@ -82,6 +82,64 @@ def read_main_records(path: Path, sheet_name: str | None = None) -> list[CaseRec
     return records
 
 
+def _case_record_from_row(row, headers: dict[str, int]) -> CaseRecord:
+    raw = {name: row[col - 1] for name, col in headers.items() if col - 1 < len(row)}
+    return CaseRecord(
+        month=str(_value(row, headers, "月份", "") or "").strip(),
+        remark=str(_value(row, headers, "备注", "") or "").strip(),
+        case_id=str(_value(row, headers, "编号", "") or "").strip(),
+        source=str(_value(row, headers, "案件来源", "") or "").strip(),
+        status=str(_value(row, headers, "案件状态", "") or "").strip(),
+        case_category=str(_value(row, headers, "案件分类", "") or "").strip(),
+        report_unit=str(_value(row, headers, "上报单位", "") or "").strip(),
+        report_time=parse_datetime(_value(row, headers, "上报时间")),
+        deadline_time=parse_datetime(_value(row, headers, "截止时间")),
+        close_time=parse_datetime(_value(row, headers, "结案时间")),
+        area=str(_value(row, headers, "区域", "") or "").strip(),
+        community=str(_value(row, headers, "小区", "") or "").strip(),
+        description=str(_value(row, headers, "案件描述", "") or "").strip(),
+        tags=str(_value(row, headers, "案件标签", "") or "").strip(),
+        road=str(_value(row, headers, "道路", "") or "").strip(),
+        park=str(_value(row, headers, "公园", "") or "").strip(),
+        point_level_1=str(_value(row, headers, "检查点位(1级)", "") or "").strip(),
+        point_level_2=str(_value(row, headers, "检查点位(2级)", "") or "").strip(),
+        point_level_3=str(_value(row, headers, "检查点位(3级)", "") or "").strip(),
+        indicator_level_1=str(_value(row, headers, "检查指标(1级)", "") or "").strip(),
+        indicator_level_2=str(_value(row, headers, "检查指标(2级)", "") or "").strip(),
+        indicator_level_3=str(_value(row, headers, "检查指标(3级)", "") or "").strip(),
+        street_center=str(_value(row, headers, "街镇分中心", "") or "").strip(),
+        district_department=str(_value(row, headers, "区委办局", "") or "").strip(),
+        district_department_level_2=str(_value(row, headers, "区委办局二级单位", "") or "").strip(),
+        operation_unit=str(_value(row, headers, "作业单位", "") or "").strip(),
+        operation_unit_level_2=str(_value(row, headers, "作业单位二级", "") or "").strip(),
+        rectification_unit=str(_value(row, headers, "整改责任单位", "") or "").strip(),
+        disposal_department=str(_value(row, headers, "处置部门名称(一级部门)", "") or "").strip(),
+        rectification_time=parse_datetime(_value(row, headers, "整改时间(二级部门)")),
+        on_time_rectification=str(_value(row, headers, "是否按期整改", "") or "").strip(),
+        coordinate=str(_value(row, headers, "经纬度", "") or "").strip(),
+        merchant_id=str(_value(row, headers, "商户编号", "") or "").strip(),
+        merchant_name=str(_value(row, headers, "商户名称", "") or "").strip(),
+        is_deduct_case=str(_value(row, headers, "上报扣分案件", "") or "").strip(),
+        is_solved=str(_value(row, headers, "解决案件库", "") or "").strip(),
+        raw=raw,
+    )
+
+
+def read_detail_records(path: Path, sheet_name: str | None = None) -> list[CaseRecord]:
+    wb = load_workbook(path, read_only=True, data_only=True)
+    ws = wb[sheet_name] if sheet_name else wb["数据明细"] if "数据明细" in wb.sheetnames else wb.active
+    required = {"编号", "检查点位(2级)", "检查点位(3级)", "检查指标(3级)", "解决案件库"}
+    header_row, headers = _find_header_row(ws, required)
+    records: list[CaseRecord] = []
+    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+        if not any(cell not in (None, "") for cell in row):
+            continue
+        record = _case_record_from_row(row, headers)
+        if record.case_id:
+            records.append(record)
+    return records
+
+
 def read_dictionary(path: Path) -> tuple[list[VillageEntry], dict[str, IndicatorMapping]]:
     wb = load_workbook(path, read_only=True, data_only=True)
     village_ws = wb["人居村"]
@@ -119,12 +177,14 @@ def read_road_ledger(path: Path, sheet_name: str | None = None) -> list[RoadLedg
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb[sheet_name] if sheet_name else wb.active
     header_row, headers = _find_header_row(ws, {"所属街道", "小区(村)名称", "道路", "备注-别名"})
+    alias_next_col = headers[normalize_header("备注-别名")] + 1
     entries: list[RoadLedgerEntry] = []
     for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
         street = str(_value(row, headers, "所属街道", "") or "").strip()
         village = str(_value(row, headers, "小区(村)名称", "") or "").strip()
         road = str(_value(row, headers, "道路", "") or "").strip()
         alias = str(_value(row, headers, "备注-别名", "") or "").strip()
+        village_road_key = str(row[alias_next_col - 1] if alias_next_col - 1 < len(row) and row[alias_next_col - 1] is not None else "").strip()
         if not (street and village and road):
             continue
         keys = _road_keys(street, village, road)
@@ -132,7 +192,7 @@ def read_road_ledger(path: Path, sheet_name: str | None = None) -> list[RoadLedg
             item = item.strip()
             if item:
                 keys.update(_road_keys(street, village, item))
-        entries.append(RoadLedgerEntry(street, village, road, alias, keys))
+        entries.append(RoadLedgerEntry(street, village, road, alias, keys, village_road_key))
     return entries
 
 

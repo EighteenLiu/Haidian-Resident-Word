@@ -1,8 +1,28 @@
 from __future__ import annotations
 
-from .models import ReportOptions, ReportStats
+from .models import ReportOptions, ReportStats, VillageRow
 from .statistics_builder import summarize_towns, summarize_villages
 from .utils import compact_pct_text, natural_join, pct_text
+
+
+def _render_village_rows_for_docx(stats: ReportStats) -> list[VillageRow]:
+    rows: list[VillageRow] = []
+    for row in stats.village_rows:
+        if row.town_name == "总计" and row.village_name == "总计":
+            rows.append(row)
+            continue
+        rows.append(
+            VillageRow(
+                town_name=row.town_name,
+                village_name=row.village_name,
+                garbage_count=row.village_appearance_count,
+                village_appearance_count=row.garbage_count,
+                sewage_count=row.sewage_count,
+                toilet_count=row.toilet_count,
+                total_count=row.total_count,
+            )
+        )
+    return rows
 
 
 def build_docx_context(stats: ReportStats, options: ReportOptions) -> dict:
@@ -34,5 +54,5 @@ def build_docx_context(stats: ReportStats, options: ReportOptions) -> dict:
         "category_rows": stats.category_rows,
         "problem_type_rows": stats.problem_type_rows,
         "town_rows": stats.town_rows,
-        "village_rows": stats.village_rows,
+        "village_rows": _render_village_rows_for_docx(stats),
     }

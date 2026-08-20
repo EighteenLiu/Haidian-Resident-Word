@@ -22,11 +22,16 @@ statistics:
     - "村容村貌整治"
     - "农村生活污水"
     - "农村厕所革命"
-  problem_type_sort: "category_then_count_desc"
 word_postprocess:
   paragraph_replacements:
     - old: "农村人居环境检查发现各镇问题数量统计表"
       new: "农村人居环境检查发现各村问题数量统计表"
+  paragraph_styles:
+    - text: "农村人居环境检查发现各村问题数量统计表"
+      font_name: "方正小标宋简体"
+      size_pt: 14
+      bold: false
+      align: "center"
   horizontal_merge_rules:
     - table_name: "category_total_row"
       table_index: 0

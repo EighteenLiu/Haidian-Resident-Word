@@ -67,6 +67,7 @@ class RoadLedgerEntry:
     road: str
     alias: str = ""
     normalized_keys: set[str] = field(default_factory=set)
+    village_road_key: str = ""
 
 
 @dataclass

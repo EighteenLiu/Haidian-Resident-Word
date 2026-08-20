@@ -6,14 +6,15 @@ from src.road_matcher import match_roads
 
 def test_road_match_statuses():
     ledger = [
-        RoadLedgerEntry("上庄镇", "八家村", "沙阳路", "别名路", {"上庄镇|八家村|沙阳路", "八家村|沙阳路", "上庄镇|八家村|别名路", "八家村|别名路"}),
-        RoadLedgerEntry("上庄镇", "草厂村", "草厂村南路", "草厂村南路", {"上庄镇|草厂村|草厂村南路", "草厂村|草厂村南路"}),
+        RoadLedgerEntry("上庄镇", "八家村", "沙阳路", "别名路", {"上庄镇|八家村|沙阳路", "八家村|沙阳路", "上庄镇|八家村|别名路", "八家村|别名路"}, "八家村沙阳路"),
+        RoadLedgerEntry("上庄镇", "草厂村", "草厂村南路", "草厂村南路", {"上庄镇|草厂村|草厂村南路", "草厂村|草厂村南路"}, "草厂村草厂村南路"),
         RoadLedgerEntry(
             "上庄镇",
             "前章村",
             "前章村路（前章村主路）",
             "前章村路（前章村主路）",
             {"上庄镇|前章村|前章村路(前章村主路)", "前章村|前章村路(前章村主路)"},
+            "前章村前章村路（前章村主路）",
         ),
     ]
     records = [
@@ -34,8 +35,8 @@ def test_road_match_statuses():
         "ROAD_EMPTY",
         "ROAD_NOT_IN_LEDGER",
         "VILLAGE_NOT_IN_LEDGER",
-        "ROAD_NOT_IN_LEDGER",
-        "MATCHED_ALIAS",
         "MATCHED",
-        "MATCHED_ALIAS",
+        "MATCHED",
+        "MATCHED",
+        "MATCHED",
     ]

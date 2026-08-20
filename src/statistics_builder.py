@@ -52,6 +52,7 @@ def build_report_stats(
         "category_order",
         ["农村生活垃圾治理", "村容村貌整治", "农村生活污水", "农村厕所革命"],
     )
+    category_order_index = {name: idx for idx, name in enumerate(category_order)}
     village_by_norm = {normalize_text(v.village_name): v for v in villages}
     town_order = []
     for v in villages:
@@ -88,31 +89,31 @@ def build_report_stats(
         if normalize_text(village) not in village_by_norm:
             village_unknown[village] += 1
 
-    category_rows: list[CategoryRow] = []
-    seq = 1
+    all_categories = list(category_counts.keys())
     for category in category_order:
+        if category not in category_counts:
+            all_categories.append(category)
+    all_categories.sort(key=lambda name: (-category_counts.get(name, 0), category_order_index.get(name, len(category_order)), name))
+    category_rows: list[CategoryRow] = []
+    for seq, category in enumerate(all_categories, 1):
         count = category_counts.get(category, 0)
         category_rows.append(CategoryRow(seq, category, count, count / total if total else 0, pct_text(count, total)))
-        seq += 1
-    for category, count in sorted(category_counts.items()):
-        if category not in category_order:
-            category_rows.append(CategoryRow(seq, category, count, count / total if total else 0, pct_text(count, total)))
-            seq += 1
     category_rows.append(CategoryRow("总计", "总计", total, 1 if total else 0, "100.00%" if total else "0.00%"))
 
-    category_rank = {name: idx for idx, name in enumerate(category_order)}
-    sort_mode = rules.get("statistics", {}).get("problem_type_sort", "category_then_count_desc")
-    if sort_mode == "count_desc":
-        sorted_problem_items = sorted(problem_counts.items(), key=lambda kv: (-kv[1], str(kv[0][1])))
-    else:
-        sorted_problem_items = sorted(problem_counts.items(), key=lambda kv: (category_rank.get(kv[0][0], 999), -kv[1], str(kv[0][1])))
-    problem_type_rows = [
-        ProblemTypeRow(i, category, problem, count, count / total if total else 0, pct_text(count, total))
-        for i, ((category, problem), count) in enumerate(sorted_problem_items, 1)
-    ]
+    problem_type_rows: list[ProblemTypeRow] = []
+    seq = 1
+    for category in [row.name for row in category_rows if row.name != "总计"]:
+        category_items = [(problem, count) for (cat, problem), count in problem_counts.items() if cat == category]
+        category_items.sort(key=lambda item: (-item[1], item[0]))
+        for problem, count in category_items:
+            problem_type_rows.append(ProblemTypeRow(seq, category, problem, count, count / total if total else 0, pct_text(count, total)))
+            seq += 1
     problem_type_rows.append(ProblemTypeRow("总计", "总计", "总计", total, 1 if total else 0, "100.00%" if total else "0.00%"))
 
-    ordered_towns = [town for town in town_order if town_counts.get(town, 0)] + sorted(t for t in town_counts if t not in town_order)
+    ordered_towns = sorted(
+        [town for town in town_counts if town_counts.get(town, 0)],
+        key=lambda town: (-town_counts[town], town_order.index(town) if town in town_order else len(town_order), town),
+    )
     town_rows = [
         TownRow(i, town, town_counts[town], town_counts[town] / total if total else 0, pct_text(town_counts[town], total))
         for i, town in enumerate(ordered_towns, 1)
